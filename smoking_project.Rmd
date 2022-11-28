@@ -1,0 +1,153 @@
+---
+title: "Stat_models_project"
+output: html_document
+date: "2022-11-28"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Checking out the data for the missing values:
+
+```{r}
+data <- read.table('Smoker_Epigenetic_df.csv', header=T, sep = ",")
+
+apply(is.na(data), 2, sum)
+apply(is.na(data), 2, which)
+
+```
+As we can see we have 62 samples where all data on methylation is missing. So we can just drop these values.
+
+```{r}
+data <- data[-which(is.na(data$cg03706273)), ]
+data <- data[, -c(1)]
+head(data, n=3)
+```
+
+
+
+```{r, echo=FALSE}
+library(tidyverse)
+library(dplyr)
+
+ggpairs(data, columns = 1:5)
+
+```
+
+```{r}
+data_m <- melt(data, na.rm = FALSE, id = names(data)[seq(1,4, by=1 )])
+head(data_m, n=3)
+```
+
+```{r, fig.width=18, fig.height=4}
+
+ggplot(data_m, aes(factor(variable), value, fill=factor(variable))) + geom_violin()
+```
+
+We can see that the majority of islands have a bimodal distribution with higher density around 0.5 and around either 0.8 or 0.1.
+
+Now we can build the barplots for each island to compare the methylation level between smokers and non-smokers:
+
+```{r, fig.width=18, fig.height=4}
+ggplot(data_m, aes(factor(variable), value, color = Smoking.Status)) +  # ggplot function
+  geom_boxplot()
+
+```
+
+We can observe that the difference between smoking and non-smoking people is so that usually only mean stays the same but quartiles are changing. Thus for non-smokers we have more narrow distributions in most cases comparing to the smokers.
+
+Now when we understood the distribution of data. The better fit to ...
+
+\textcolor{red}{compare vars instead of raw values bc they should really differ} 
+
+```{r}
+
+
+```
+
+First, we can calculate the deviance from mean for each row for each island:
+
+```{r}
+data_diff <- data
+for(col in colnames(data)[4:length(names(data_diff))]){
+  data_diff[[col]] <- data_diff[[col]] - mean(data_diff[[col]])
+}
+
+data_diff$mean_per_row <- rowMeans(data_diff[, 4:length(names(data_diff))])
+
+'''
+NOT WORKING BUT NICE IDEA
+
+# we can now code the means by calculating the confidence intervals
+significant_diff <- c(mean(data_diff$mean_per_row) - 3*sd(data_diff$mean_per_row), 
+                      mean(data_diff$mean_per_row) + 3*sd(data_diff$mean_per_row))
+
+
+data_diff$mean_cat <- ifelse((data_diff$mean_per_row > significant_diff[1]) & (data_diff$mean_per_row < significant_diff[2]), 0, 1)
+
+EVERYTHING IS IN THE INTERVAL
+'''
+
+data_diff$mean_cat <- abs(data_diff$mean_per_row)
+
+# taking abs and coding as 1 if abs is more than average and as 0 is less
+data_diff$mean_cat <- ifelse(data_diff$mean_cat > mean(data_diff$mean_cat), 1, 0)
+
+head(data_diff, n = 3)
+```
+
+```{r}
+table(data_diff$mean_cat)
+```
+
+
+Then we can try to construct some models based on this columns and then compare its performance on other columns:
+
+```{r}
+#install.packages("Correlplot")
+library(Correlplot)
+attach(data_diff)
+
+model_log1 <- glm(mean_cat~Smoking.Status, 
+              family = binomial(link = 'logit'), # to use logistic regression
+              trace=TRUE)
+
+summary(model_log1)
+
+```
+
+```{r}
+anova(model_log1,test="Chisq") 
+```
+
+
+```{r, eco=False}
+
+plot(data_diff$Smoking.Status, data_diff$mean_cat)
+     #, xlab="Last weight mother", ylab="LBW", ylim=c(-0.1,1.1))
+
+# type - not logit
+curve(predict(model_log1, data.frame(data_diff$Smoking.Status=x), type="resp"),add=TRUE,col="blue",lwd=2)
+points(data_diff$Smoking.Status, fitted(model_log1), pch=1, col="blue") # fitted probabilities
+
+```
+
+
+then:
+
+1) improve this model
+2) make linear model and compare
+3) perform on all cpg islands
+
+
+```{r}
+
+```
+
+
+```{r}
+
+
+```
+
