@@ -22,7 +22,15 @@ As we can see we have 62 samples where all data on methylation is missing. So we
 ```{r}
 data <- data[-which(is.na(data$cg03706273)), ]
 data <- data[, -c(1)]
-head(data, n=3)
+tail(data, n=3)
+```
+
+```{r}
+data$Gender<-sapply(data$Gender, tolower)
+table(data$Gender)    
+
+ggplot(data, aes(x=Age, color=Gender)) +
+  geom_histogram(fill="white", alpha=0.5, position="identity")
 ```
 
 
@@ -57,97 +65,174 @@ ggplot(data_m, aes(factor(variable), value, color = Smoking.Status)) +  # ggplot
 
 We can observe that the difference between smoking and non-smoking people is so that usually only mean stays the same but quartiles are changing. Thus for non-smokers we have more narrow distributions in most cases comparing to the smokers.
 
-Now when we understood the distribution of data. The better fit to ...
-
-\textcolor{red}{compare vars instead of raw values bc they should really differ} 
 
 ```{r}
+# making new dataframe for the corrected values
 
-
+data_diff <- data.frame(data) 
+head(data_diff, 3)
 ```
 
-First, we can calculate the deviance from mean for each row for each island:
+```{r}
+data_diff_only_nonsm <- data_diff[data_diff$Smoking.Status=="never", ]
+
+# the vector of means for each island for nonsmokers
+means_nonsmokers_vector <- append(c("never", "fm"), colMeans(data_diff_only_nonsm[sapply(data_diff_only_nonsm[], is.numeric)]))
+means_nonsmokers_vector
+```
 
 ```{r}
-data_diff <- data
-for(col in colnames(data)[4:length(names(data_diff))]){
-  data_diff[[col]] <- data_diff[[col]] - mean(data_diff[[col]])
+# calculating the deviance from the nonsmoker-mean for each parient
+for(col in colnames(data)[5:length(names(data_diff))]){
+  data_diff[[col]] <- data_diff[[col]] - as.numeric(means_nonsmokers_vector[col])
 }
 
+# calculating average deviance for each parient along all columns
 data_diff$mean_per_row <- rowMeans(data_diff[, 4:length(names(data_diff))])
 
-'''
-NOT WORKING BUT NICE IDEA
+head(data_diff, 3)
 
-# we can now code the means by calculating the confidence intervals
-significant_diff <- c(mean(data_diff$mean_per_row) - 3*sd(data_diff$mean_per_row), 
-                      mean(data_diff$mean_per_row) + 3*sd(data_diff$mean_per_row))
+```
+```{r}
+# we can have a look at the distribution of the mean deviation - it shoud be around zero
+library(ggplot2)
+ggplot(data_diff, aes(x=mean_per_row)) +  geom_histogram()
+```
+     
 
-
-data_diff$mean_cat <- ifelse((data_diff$mean_per_row > significant_diff[1]) & (data_diff$mean_per_row < significant_diff[2]), 0, 1)
-
-EVERYTHING IS IN THE INTERVAL
-'''
-
+```{r}
+# now we can take absolute value and code the column
 data_diff$mean_cat <- abs(data_diff$mean_per_row)
 
-# taking abs and coding as 1 if abs is more than average and as 0 is less
-data_diff$mean_cat <- ifelse(data_diff$mean_cat > mean(data_diff$mean_cat), 1, 0)
+# taking abs and coding as 1 if abs is more than mean(=0) + std and as 0 if it's is less
+data_diff$mean_cat <- ifelse(data_diff$mean_cat > sd(data_diff$mean_cat), 1, 0)
 
 head(data_diff, n = 3)
+```
+
+
+```{r}
+# now we can construct a dataset with all CpG islands coded as 1 or 0
+
+data_cat_all_cpg <- data.frame(data_diff)[-c(621), ]
+
+for(col in colnames(data_cat_all_cpg)[4:length(names(data_cat_all_cpg))]){
+  data_cat_all_cpg[[col]] <- ifelse(data_cat_all_cpg[[col]] > sd(data_cat_all_cpg[[col]]), 1, 0)
+}
 ```
 
 ```{r}
 table(data_diff$mean_cat)
 ```
 
+```{r}
+data_diff$Smoking.Status <- ifelse(data_diff$Smoking.Status == "never", 0, 1)
+data_cat_all_cpg$Smoking.Status <- ifelse(data_cat_all_cpg$Smoking.Status == "never", 0, 1)
+head(data_cat_all_cpg, 3)
+```
+
+## MODELLING
 
 Then we can try to construct some models based on this columns and then compare its performance on other columns:
 
-```{r}
+```{r, error=FALSE}
 #install.packages("Correlplot")
 library(Correlplot)
-attach(data_diff)
 
-model_log1 <- glm(mean_cat~Smoking.Status, 
+# model for the generalized column ONLY SMOKING STATUS
+model_log1 <- glm(data_diff$mean_cat~data_diff$Smoking.Status, 
               family = binomial(link = 'logit'), # to use logistic regression
               trace=TRUE)
 
 summary(model_log1)
 
 ```
+```{r, echo=False}
+attach(data_diff)
 
-```{r}
-anova(model_log1,test="Chisq") 
-```
+plot(jitter(data_diff$Smoking.Status, amount = 0.1), jitter(data_diff$mean_cat, amount = 0.1), xlab="Smoking status",
+     ylab="Methylation", xlim=c(-0.1,1.1))
 
+curve(predict(model_log1, data.frame(Smoking.Status = x), type="resp"), add=TRUE,col="blue",lwd=2)
 
-```{r, eco=False}
-
-plot(data_diff$Smoking.Status, data_diff$mean_cat)
-     #, xlab="Last weight mother", ylab="LBW", ylim=c(-0.1,1.1))
-
-# type - not logit
-curve(predict(model_log1, data.frame(data_diff$Smoking.Status=x), type="resp"),add=TRUE,col="blue",lwd=2)
 points(data_diff$Smoking.Status, fitted(model_log1), pch=1, col="blue") # fitted probabilities
 
 ```
 
 
-then:
+```{r}
+# model for the generalized column ONLY SMOKING STATUS + AGE + GENDER
 
-1) improve this model
-2) make linear model and compare
-3) perform on all cpg islands
+model_log_sag <- glm(data_diff$mean_cat~data_diff$Smoking.Status + data_diff$Age + data_diff$Gender, 
+              family = binomial(link = 'logit'), # to use logistic regression
+              trace=TRUE)
 
+summary(model_log_sag)
+```
 
 ```{r}
 
+# model for the generalized column ONLY SMOKING STATUS + GENDER
+
+model_log_sg <- glm(data_diff$mean_cat~data_diff$Smoking.Status + data_diff$Gender, 
+              family = binomial(link = 'logit'), # to use logistic regression
+              trace=TRUE)
+
+summary(model_log_sg)
+```
+
+```{r}
+# model for the generalized column ONLY SMOKING STATUS + AGE
+
+model_log_sa <- glm(data_diff$mean_cat~data_diff$Smoking.Status + data_diff$Age, 
+              family = binomial(link = 'logit'), # to use logistic regression
+              trace=TRUE)
+
+summary(model_log_sa)
+```
+
+## MODELS FOR THE ISLANDS
+
+```{r}
+
+# model for the first island
+model_log_cg00214611 <- glm(data_cat_all_cpg$mean_cat~data_cat_all_cpg$Smoking.Status, 
+              family = binomial(link = 'logit'), # to use logistic regression
+              trace=TRUE)
+
+summary(model_log_cg00214611)
 ```
 
 
 ```{r}
+all_islands <- names(data_cat_all_cpg)[4:(length(names(data_cat_all_cpg))-2)]
+
+for (island in all_islands) {
+  model = glm(data_cat_all_cpg[[island]] ~ data_cat_all_cpg$Smoking.Status + data_cat_all_cpg$Gender, family = binomial(link = "logit"), trace = F )
+  print(island)
+  print(summary(model))
+  print("----------------------------------------------------------------------------")
+}
+
+```
+
+```{r}
 
 
 ```
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```   
 

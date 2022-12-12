@@ -1,0 +1,93 @@
+---
+title: "Untitled"
+author: "Diego & Anna"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+Data Input and Conversion
+
+"In order to use techniques from the course, an option would be to use logistic regression with methylation as the response. Methylations would then have to be recoded as "above median" and "<= below median" for each CG island. The predictors would be smoke+age+sex.
+
+Because there are 20+ islands, you could repeat the modeling 20+ times, quite some work. For the project, one option is to do the modelling in detail for just one island, and maybe also for a summary measure of all islands. So say, average methylation over the 20 islands, then dichotomize, and then do logistic regression. That way, you would do the modeling just twice (for one island, and for the average of all)."
+
+```{r}
+data = read.delim(file ="/home/dbj/aa_school/statistics/project/Smoker_Epigenetic_df.csv", sep = ",", stringsAsFactors = T, header = T)
+
+data_median = data
+
+#convert island methylation percentage to whether the methylation is larger than the median for the given island
+for ( island in names(data[1,-seq(1,4)])) {
+  data_median[island] = data_median[island] > median(data_median[island][,], na.rm = T)
+}
+attach(data_median)
+
+for ( island in names(data[1,-seq(1,4)])) {
+  model = glm(data_median[[island]] ~ Smoking.Status + Age + Gender, family = binomial(link = "logit"), trace = F )
+  print(island)
+  print(paste("AIC: ", summary(model)$aic))
+  print("Coefficients: ")
+  print( summary(model)[12])
+  print("----------------------------------------------------------------------------")
+}
+```
+
+Barplot difference between averages of DNA methylation
+```{r}
+smokers = data[data$Smoking.Status != "never",]
+nonsmokers = data[data$Smoking.Status == "never",]
+SvsNS = data.frame(difference_in_means = numeric(20), smokers_mean = numeric(20), nonsmokers_mean = numeric(20))
+for (i in seq(1,20)){
+  SvsNS$difference_in_means[i] = mean(smokers[, -c(1, 2, 3, 4)][,i], na.rm = T) - mean(nonsmokers[, -c(1, 2, 3, 4)][,i], na.rm = T)
+  SvsNS$smokers_mean[i] = mean(smokers[, -c(1,2,3,4)][,i], na.rm = T)
+  SvsNS$nonsmokers_mean[i] = mean(nonsmokers[, -c(1, 2, 3, 4)][,i], na.rm = T)
+} 
+barplot(sort(SvsNS$difference_in_means), main = "Difference in average percentage of methylated \nresidues between smokers and non-smokers", ylab = "Percentage Difference", xlab = "CpG Island", ylim = c(-0.06, 0.06))
+```
+
+
+```{r}
+data$row_means = rowMeans(data[, -c(1, 2, 3, 4)])
+data$above_median = data$row_means > median(data$row_means, na.rm = T)
+model = glm(data$above_median ~ Smoking.Status + Age + Gender, family = binomial(link = "logit"), trace = T )
+summary(model)
+
+attach(data)
+
+#No Predictors
+model = glm(data$above_median ~ 1, family = binomial(link = "logit"), trace = F )
+summary(model)
+
+#All Predictors
+model = glm(data$above_median ~ Smoking.Status + Age + Gender, family = binomial(link = "logit"), trace = F )
+summary(model)
+
+#Smoking + Gender and RandomSlope
+model = glm(data$above_median ~ - 1 + Smoking.Status + Gender, family = binomial(link = "logit"), trace = F )
+summary(model)
+
+#Smoking + Gender
+model = glm(data$above_median ~  Smoking.Status + Gender, family = binomial(link = "logit"), trace = F )
+summary(model)
+
+#Smoking
+model = glm(data$above_median ~ Smoking.Status, family = binomial(link = "logit"), trace = F )
+summary(model)
+
+plot(jitter(as.numeric(above_median), 1)~ Gender + Smoking.Status, col = Gender)
+
+plot(jitter(as.numeric(data$above_median), 0.5) ~ jitter(as.numeric(data$Smoking.Status), 1), pch = 18, ylab = "Methylation of Individual is\nabove/below the Median", xlab = "Smoker (1) / Non-smoker (0)", main = "Methylation as a function of\nSmoking Status and Gender", col = Smoking.Status)
+```
+
+
+
+```{r}
+plot(Smoking.Status)
+table(above_median[Smoking.Status=="current"])
+table(Smoking.Status=="current")
+table(above_median[Smoking.Status=="never"])
+```
+
+
+
+
